@@ -1,0 +1,14 @@
+CREATE TABLE IF NOT EXISTS activities (
+ id SERIAL PRIMARY KEY,
+ name VARCHAR(100) NOT NULL,
+ date DATE NOT NULL,
+ location VARCHAR(200) NOT NULL
+);
+CREATE TABLE IF NOT EXISTS registrations (
+ id SERIAL PRIMARY KEY,
+ activity_id INTEGER NOT NULL REFERENCES activities(id) ON DELETE CASCADE,
+ name VARCHAR(100) NOT NULL,
+ phone VARCHAR(20) NOT NULL,
+ signup_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_registrations_activity_id ON registrations(activity_id);

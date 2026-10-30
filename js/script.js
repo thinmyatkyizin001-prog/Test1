@@ -1,111 +1,103 @@
-// 活動資料（每筆活動包含 registrations 存放報名名單）
-let activities = [
-  {
-    id: 1,
-    name: '校園園遊會',
-    date: '2026-11-10',
-    location: '學校操場',
-    registrations: []
-  }
-];
-
 const form = document.getElementById('activity-form');
 const listContainer = document.getElementById('activity-list');
-
-// 彈窗相關元素
 const modal = document.getElementById('signup-modal');
 const modalTitle = document.getElementById('modal-title');
 const signupForm = document.getElementById('signup-form');
 const signupActIdInput = document.getElementById('signup-act-id');
 const cancelBtn = document.getElementById('cancel-btn');
+let activities = [];
 
-// 渲染活動清單卡片
-function renderActivities() {
-  listContainer.innerHTML = '';
-
-  if (activities.length === 0) {
-    listContainer.innerHTML = '<p>目前沒有可報名的活動。</p>';
-    return;
-  }
-
-  activities.forEach(activity => {
-    const card = document.createElement('div');
-    card.className = 'activity-card';
-    card.innerHTML = `
-      <div>
-        <h3>${activity.name}</h3>
-        <p><strong>日期：</strong>${activity.date}</p>
-        <p><strong>地點：</strong>${activity.location}</p>
-        <p><strong>已報名人數：</strong>${activity.registrations.length} 人</p>
-      </div>
-      <button class="btn apply-btn" onclick="openModal(${activity.id})">我要報名</button>
-    `;
-    listContainer.appendChild(card);
-  });
+async function api(path, options = {}) {
+  let response;
+  try { response = await fetch(path, options); }
+  catch { throw new Error('無法連線到後端，請確認 Flask 已啟動'); }
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error || '操作失敗');
+  return data;
 }
 
-// 新增活動事件
-form.addEventListener('submit', function (e) {
-  e.preventDefault();
+async function loadActivities() {
+  try {
+    activities = await api('/api/activities');
+    renderActivities();
+  } catch (error) {
+    listContainer.textContent = error.message;
+  }
+}
 
+function renderActivities() {
+  listContainer.replaceChildren();
+  if (!activities.length) {
+    listContainer.textContent = '目前沒有可報名的活動。';
+    return;
+  }
+  for (const activity of activities) {
+    const card = document.createElement('div');
+    card.className = 'activity-card';
+    const details = document.createElement('div');
+    const title = document.createElement('h3');
+    title.textContent = activity.name;
+    details.appendChild(title);
+    for (const [label, value] of [['日期', activity.date], ['地點', activity.location], ['已報名人數', `${activity.registration_count} 人`]]) {
+      const p = document.createElement('p');
+      const strong = document.createElement('strong');
+      strong.textContent = `${label}：`;
+      p.append(strong, document.createTextNode(value));
+      details.appendChild(p);
+    }
+    const apply = document.createElement('button');
+    apply.className = 'btn apply-btn';
+    apply.textContent = '我要報名';
+    apply.addEventListener('click', () => openModal(activity.id));
+    const view = document.createElement('button');
+    view.className = 'btn apply-btn';
+    view.textContent = '查看報名名單';
+    view.addEventListener('click', () => showRegistrations(activity));
+    card.append(details, apply, document.createTextNode(' '), view);
+    listContainer.appendChild(card);
+  }
+}
+
+form.addEventListener('submit', async event => {
+  event.preventDefault();
   const name = document.getElementById('act-name').value.trim();
   const date = document.getElementById('act-date').value;
   const location = document.getElementById('act-location').value.trim();
-
-  if (!name || !date || !location) return;
-
-  const newActivity = {
-    id: Date.now(),
-    name,
-    date,
-    location,
-    registrations: []
-  };
-
-  activities.push(newActivity);
-  renderActivities();
-  form.reset();
+  try {
+    await api('/api/activities', {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,date,location})});
+    form.reset();
+    await loadActivities();
+  } catch (error) { alert(error.message); }
 });
 
-// 開啟報名彈窗
-function openModal(activityId) {
-  const activity = activities.find(a => a.id === activityId);
+function openModal(id) {
+  const activity = activities.find(item => item.id === id);
   if (!activity) return;
-
   modalTitle.textContent = `報名：${activity.name}`;
-  signupActIdInput.value = activity.id;
+  signupActIdInput.value = id;
   modal.classList.remove('hidden');
 }
-
-// 關閉報名彈窗
-function closeModal() {
-  modal.classList.add('hidden');
-  signupForm.reset();
-}
-
+function closeModal() { modal.classList.add('hidden'); signupForm.reset(); }
 cancelBtn.addEventListener('click', closeModal);
 
-// 送出報名表單
-signupForm.addEventListener('submit', function (e) {
-  e.preventDefault();
-
-  const actId = Number(signupActIdInput.value);
-  const userName = document.getElementById('user-name').value.trim();
-  const userPhone = document.getElementById('user-phone').value.trim();
-
-  const activity = activities.find(a => a.id === actId);
-  if (activity) {
-    activity.registrations.push({
-      name: userName,
-      phone: userPhone,
-      signupAt: new Date().toLocaleDateString()
-    });
-
-    alert(`報名成功！\n活動：${activity.name}\n姓名：${userName}`);
+signupForm.addEventListener('submit', async event => {
+  event.preventDefault();
+  const id = Number(signupActIdInput.value);
+  const name = document.getElementById('user-name').value.trim();
+  const phone = document.getElementById('user-phone').value.trim();
+  try {
+    await api(`/api/activities/${id}/registrations`, {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({name,phone})});
+    alert('報名成功！');
     closeModal();
-    renderActivities(); // 更新畫面上的已報名人數
-  }
+    await loadActivities();
+  } catch (error) { alert(error.message); }
 });
 
-// 初始渲染
-renderActivities();
+async function showRegistrations(activity) {
+  try {
+    const registrations = await api(`/api/activities/${activity.id}/registrations`);
+    const lines = registrations.map((r, i) => `${i + 1}. ${r.name}　${r.phone}`);
+    alert(`活動：${activity.name}\n報名名單：\n${lines.join('\n') || '目前尚無報名'}`);
+  } catch (error) { alert(error.message); }
+}
+loadActivities();
